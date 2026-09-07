@@ -8,7 +8,7 @@ Si tenías abierta la primera versión, recargá la pestaña para ver el redise�
 
 | Juego | Qué hacés | Qué representa |
 | --- | --- | --- |
-| El barbero dormilón | Arrastrás clientes desde la calle al sillón o a una de tres sillas; cortás al ritmo con Espacio. A activa la coordinación automática. | Un servidor exclusivo, cola limitada, espera y despertar. |
+| El barbero dormilón | Arrastrás clientes desde la calle al sillón o a una de N sillas (1–5); cortás al ritmo con Espacio. A activa la coordinación automática. | Un servidor exclusivo, balking, cola limitada y carreras sobre waiting. |
 | La cena que no empieza | Arrastrás tenedores hasta los filósofos vecinos. Cada uno come con dos y después los devuelve. | Recursos exclusivos, retención, espera circular y orden de adquisición. |
 | La fábrica de datos | Conducís una carretilla con WASD/flechas; E carga en el muelle y entrega en la cinta. También podés tocar destinos. | Productor, consumidor, búfer circular y semáforos llenos/vacíos. |
 | El puente bloqueado | Seleccionás un auto bloqueado y usás R para retroceder; controlás la entrada con el semáforo. | Interbloqueo, reversión y prevención mediante admisión. |
@@ -28,6 +28,23 @@ En pantallas táctiles se puede arrastrar o tocar origen y destino. En la fábri
 5. En la bóveda, dejá correr la primera ronda sin mutex. Ambos cajeros leen el mismo valor y una escritura pisa a la otra. Activá M, entregá la llave a uno y esperá su devolución antes de entregarla al otro.
 6. En el parking, llená los tres lugares y observá la espera del cuarto auto. Una salida permite admitir al siguiente. Las plazas reservadas por autos que maniobran también consumen permisos.
 7. Terminá con el desafío de seis preguntas. La terminal y el planificador son actividades adicionales.
+
+## Barbería: controles y experimento del mutex
+
+- **− Silla / + Silla**: cambia N entre 1 y 5 y centra la sala. No expulsa clientes: si hay más reservas que el nuevo N, una sección crítica o admisiones pendientes, esperá antes de reconfigurar.
+- **A**: alterna asignación manual y automática. En ambos modos, una sala llena rechaza al recién llegado: **SALA LLENA**, rojo, vuelve a la izquierda. El HUD cuenta estos rechazos por separado.
+- **ME CANSÉ**, durazno: agotó 24 segundos en la puerta. Es un timeout del juego, **no** parte del problema clásico. También vuelve a la izquierda; el atendido sale a la derecha con **¡GRACIAS!** verde.
+- **Espacio**: minijuego de ritmo que acelera el servicio; no modela una primitiva de sistemas operativos.
+- **M**: activa/desactiva mutex. No cambia durante una transacción ni con un contador inconsistente: dejá vaciar la cola o reiniciá para repetir.
+
+### Demostración reproducible (también en manual)
+
+1. Configurá **N = 1**, admití un cliente al sillón y dejá la silla libre.
+2. Desactivá el mutex y pulsá **Dos al último lugar**. El botón solicita dos admisiones simultáneas; no cambia N ni prepara artificialmente la cola.
+3. Ambos muestran **LEE 0 → 1** antes de escribir. Resultado: `waiting = 1`, **2 personas**, una **¡SIN SILLA!** y un error de carrera. Con N = 3 y dos personas esperando, el mismo experimento produce `waiting = 3` con cuatro personas.
+4. Reiniciá y repetí con mutex activo (predeterminado): el candado cubre lectura, comprobación y escritura. El segundo espera, lee el nuevo valor y se retira por **SALA LLENA**.
+
+Las reservas de clientes caminando hacia las sillas ya cuentan como espera. El barbero también protege la retirada FIFO. La flecha y el aviso **SILLÓN LIBRE → PRIMERO DE LA COLA** vinculan la liberación con el siguiente turno. `customers` y `barbers` se muestran como señales de despertar/turno; no se simulan hilos ni contadores completos de esos semáforos.
 
 ## Alcance conceptual
 

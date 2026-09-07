@@ -16,6 +16,72 @@ const path=require('node:path');
  await page.click('[data-action="auto"]');await state(()=>{let g=Concurrente.game;for(let i=0;i<8000&&!g.finished;i++){if((g.t*.8)%1>.4&&(g.t*.8)%1<.68)g.cutBeat();g.tick(1/60)}Concurrente.render()});assert.equal(await state(()=>Concurrente.game.served),8);console.log('PASS barber: drag/drop, queue, rhythm, mission');
  // Visual barber with seated and walking characters.
  await launch(0);await page.click('[data-action="auto"]');await state(()=>Concurrente.step(22));await page.screenshot({path:'/tmp/concurrente-barber.png'});
+ // Barber: manual mission, capacity bounds, distinct departures and real staged race.
+ await launch(0);
+ await state(()=>{const g=Concurrente.game;for(let i=0;i<8000&&!g.finished;i++){
+   for(const o of g.clients.filter(o=>o.state==='door')){
+     if(!g.current&&!g.queue.length&&!g.pending.length)g.admit(o,-1);
+     else{const seat=g.seats.findIndex((_,j)=>!g.queue.some(q=>q.seat===j));if(seat>=0)g.admit(o,seat)}
+   }
+   if((g.t*.8)%1>.4&&(g.t*.8)%1<.68)g.cutBeat();g.tick(1/60);
+ }Concurrente.render()});
+ assert.equal(await state(()=>Concurrente.game.auto),false);
+ assert.equal(await state(()=>Concurrente.game.served),8);
+ console.log('PASS barber: manual eight-client mission');
+ for(const n of [1,3,5])for(const safe of [false,true]){
+   await launch(0);
+   await page.evaluate(({n,safe})=>{const g=Concurrente.game;g.spawnIn=999;g.resize(n);if(!safe)g.action('mutex');
+     const first=g.spawn();Object.assign(first,{x:330,y:302});g.admit(first,-1);first.state='cut';
+     for(let j=0;j<n-1;j++){const o=g.spawn();g.admit(o,j);for(let i=0;i<50;i++)g.tick(1/60)}
+     g.cut=0;g.action('pair');g.tick(1/60);Concurrente.render();
+   },{n,safe});
+   assert.equal(await state(()=>Concurrente.game.pending.filter(t=>t.read!==null).length),safe?1:2);
+   await state(()=>Concurrente.step(1.8));
+   const r=await state(()=>{const g=Concurrente.game;return {waiting:g.waiting,count:g.queue.length,errors:g.errors,rejected:g.rejected,overflow:g.queue.filter(o=>o.seat===-1).length}});
+   assert.equal(r.waiting,n);assert.equal(r.count,safe?n:n+1);assert.equal(r.errors,safe?0:1);assert.equal(r.rejected,safe?1:0);assert.equal(r.overflow,safe?0:1);
+   if(n===3&&!safe){await state(()=>Concurrente.step(3.5));await page.screenshot({path:'/tmp/concurrente-barber-race.png'})}
+ }
+ await launch(0);
+ await state(()=>{const g=Concurrente.game;g.spawnIn=999;g.resize(1);const o=g.spawn();g.admit(o,-1);const q=g.spawn();g.admit(q,0);Concurrente.step(1);const full=g.spawn();Object.assign(full,{x:130,y:475,state:'door'});g.tick(.02)});
+ assert.equal(await state(()=>Concurrente.game.rejected),1);
+ assert.equal(await state(()=>Concurrente.game.clients.at(-1).reason),'capacity');
+ await state(()=>{const g=Concurrente.game;const o=g.clients.at(-1);o.x=-59;o.turnUntil=0;g.tick(.1)});
+ assert.equal(await state(()=>Concurrente.game.clients.some(o=>o.state==='leave')),false);
+ await launch(0);
+ await state(()=>{const g=Concurrente.game;g.spawnIn=999;const o=g.spawn();Object.assign(o,{x:130,y:475,state:'door',patience:.01});g.tick(.02)});
+ assert.equal(await state(()=>Concurrente.game.lost),1);assert.equal(await state(()=>Concurrente.game.rejected),0);
+ assert.equal(await state(()=>Concurrente.game.clients[0].reason),'timeout');
+ await state(()=>{const g=Concurrente.game;g.resize(5);g.resize(6)});assert.equal(await state(()=>Concurrente.game.capacity),5);
+ await state(()=>{const g=Concurrente.game;g.resize(1);g.resize(0)});assert.equal(await state(()=>Concurrente.game.capacity),1);
+ // Resizing reserves all in-flight seats; shrinking never evicts admitted clients.
+ await launch(0);
+ await state(()=>{const g=Concurrente.game;g.spawnIn=999;const first=g.spawn();g.admit(first,-1);g.admit(g.spawn(),0);g.resize(5)});
+ assert.equal(await state(()=>Concurrente.game.capacity),3);
+ await state(()=>{const g=Concurrente.game;Concurrente.step(1);g.admit(g.spawn(),1);Concurrente.step(1);g.resize(1)});
+ assert.equal(await state(()=>Concurrente.game.capacity),3);
+ await state(()=>Concurrente.game.resize(5));
+ assert(await state(()=>{const g=Concurrente.game;return g.capacity===5&&g.queue.every(o=>o.seat>=0&&g.seats[o.seat])&&g.seats[0].x+g.seats[4].x===1454}));
+ await state(()=>{const g=Concurrente.game;const o=g.spawn();Object.assign(o,{x:999,y:480,state:'done'});g.tick(.1)});
+ assert.equal(await state(()=>Concurrente.game.clients.some(o=>o.state==='done')),false);
+ console.log('PASS barber: N=1/3/5, mutex serializes, unsafe lost update, manual balking, timeout, left cleanup');
+ // Exit messages remain foreground while the rhythm meter is active.
+ await launch(0);
+ const speech=await state(()=>{const g=Concurrente.game;g.spawnIn=999;
+   const current=g.spawn();Object.assign(current,{x:330,y:302,state:'cut'});g.current=current;
+   for(const [x,reason] of [[130,'capacity'],[290,'timeout']]){const o=g.spawn();Object.assign(o,{x,y:480,state:'leave',reason,turnUntil:99})}
+   const done=g.spawn();Object.assign(done,{x:990,y:480,state:'done'});
+   const ctx=document.querySelector('#world').getContext('2d'),original=ctx.fillText,draws=[];
+   ctx.fillText=function(t,x,y){draws.push({t,x,y});return original.apply(this,arguments)};
+   try{Concurrente.render()}finally{ctx.fillText=original}
+   return draws;
+ });
+ const rhythm=speech.findIndex(o=>o.t==='ESPACIO EN VERDE');
+ for(const message of ['SALA LLENA','ME CANSÉ','¡GRACIAS!']){
+   const index=speech.findIndex(o=>o.t===message);assert(index>rhythm);assert(speech[index].x>=55&&speech[index].x<=905);
+ }
+ assert(speech[rhythm].y<180);
+ await page.screenshot({path:'/tmp/concurrente-barber-exit-messages.png'});
+ console.log('PASS barber: exit speech foreground, rhythm off sidewalk, edge clamping');
  // Deadlock and recovery via ordered fork assignment.
  await launch(1);await page.click('[data-action="chaos"]');assert(await state(()=>Concurrente.game.dead));await page.screenshot({path:'/tmp/concurrente-philosophers-deadlock.png'});await page.click('[data-action="safe"]');await state(()=>{for(let i=0;i<5;i++){Concurrente.game.step(i);Concurrente.game.step(i);Concurrente.step(4)}});assert(await state(()=>Concurrente.game.ate.every(n=>n>0)));console.log('PASS philosophers: circular wait, ordered acquisition, all eat');
  // Factory: move along actual paths, exercise full/empty semaphores.
